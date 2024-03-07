@@ -11,7 +11,6 @@ EXTRA_DISK_SIZE="5GB"
 
 # OS specific Vars
 BOX_NAME='generic/centos9s'
-BOX_VERSION='4.2.16'
 
 # Naming
 CONTROL_HOSTNAME="master"
@@ -20,24 +19,30 @@ DOMAIN="ansible.lab"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vagrant.plugins = "vagrant-libvirt"
-  config.ssh.username = "root"
-  config.ssh.password = "1234QWer"
   config.ssh.insert_key = 'true'
   config.vm.provision "shell", inline: <<-SHELL
     sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config    
+    echo -e '10.10.10.100 master.ansible.lab master\n10.10.10.201 node1.ansible.lab node1\n10.10.10.202 node2.ansible.lab node2\n10.10.10.203 node3.ansible.lab node3' >> /etc/hosts 
+    echo 'ansible ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/ansible
     systemctl restart sshd.service
     useradd -m ansible
-    echo "1234QWer" | passwd root     
-    echo "1234QWer" | passwd ansible
-    SHELL
+    mkdir -p /home/ansible/rhce/ /home/ansible/.ssh
+    chown -R ansible:ansible /home/ansible
+  SHELL
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.driver = "kvm"
+    libvirt.host = 'localhost'
+    libvirt.uri = 'qemu:///system'
+  end
   (1..3).each do |i| # can be changed to any two integers in series
     config.vm.define "node#{i}" do |node|
       node.vm.box = BOX_NAME
-      node.vm.box_version = BOX_VERSION
-      node.vm.hostname = MANAGED_HOSTNAME_PREFIX << "#{i}"
-      node.vm.network :private_network,ip: "10.10.10.10#{i}",
-        libvirt__network_name: "rhce-lab",
-        libvirt__host_ip: '10.10.10.1'
+      node.vm.hostname = "#{MANAGED_HOSTNAME_PREFIX}#{i}.#{DOMAIN}"
+      node.vm.network :private_network, 
+                      :ip => "10.10.10.20#{i}", 
+                      :libvirt__netmask => '255.255.255.0',
+                      :libvirt__network_name => "rhce-lab", 
+                      :libvirt__forward_mode => 'none'
       if i == 2 
         EXTRA_DISK_SIZE="10GB"
       end
@@ -52,11 +57,11 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   end
   config.vm.define "master" do |master|
     master.vm.box = BOX_NAME
-    master.vm.box_version = BOX_VERSION 
-    master.vm.hostname = CONTROL_HOSTNAME
-    master.vm.network :private_network,ip: '10.10.10.100',
-      libvirt__network_name: "rhce-lab",
-      libvirt__host_ip: '10.10.10.1'
+    master.vm.hostname = "#{CONTROL_HOSTNAME}.#{DOMAIN}"
+    master.vm.network :private_network, 
+                      :ip => "10.10.10.100", 
+                      :libvirt__network_name =>  "rhce-lab",
+                      :libvirt__forward_mode => 'none'
     master.vm.provider "libvirt" do |lv|
       lv.memory = 2048
       lv.cpus = 4
